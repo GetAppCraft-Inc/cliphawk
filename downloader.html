@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClipHawk · Downloading</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    body { width: auto; max-height: none; min-height: 100vh; display: grid; place-items: start center; padding: 48px 16px; }
+    .wrap { width: min(640px, 100%); }
+    h1 { font-size: 20px; margin: 0 0 4px; word-break: break-word; }
+    .sub { color: var(--muted); font-size: 12px; margin-bottom: 18px; word-break: break-all; }
+    .track { margin-bottom: 14px; }
+    .track-head { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
+    .bar { height: 10px; border-radius: 999px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--border); }
+    .fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s; }
+    #status { margin: 16px 0 10px; font-size: 13.5px; }
+    #status.err { color: var(--bad); }
+    #status.ok { color: var(--ok); }
+    pre {
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+      font-size: 12px; white-space: pre-wrap; word-break: break-all;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand" style="margin-bottom:18px">
+      <img src="icons/icon32.png" alt="" width="24" height="24"><span>Clip<b>Hawk</b></span>
+    </div>
+    <div class="card">
+      <h1 id="title">Preparing…</h1>
+      <div class="sub" id="source"></div>
+      <div id="tracks"></div>
+      <div id="status">Reading manifest…</div>
+      <div id="hint" hidden></div>
+      <div class="row">
+        <button class="btn ghost" id="cancel">Cancel</button>
+      </div>
+    </div>
+    <p class="note">Keep this tab open until the browser shows the file as saved.</p>
+  </div>
+  <script type="module" src="downloader.js"></script>
+</body>
+</html>

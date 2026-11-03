@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ClipHawk</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="icons/icon32.png" alt="" width="22" height="22">
+      <span>Clip<b>Hawk</b></span>
+    </div>
+    <button id="rescan" class="icon-btn" title="Rescan page">↻</button>
+  </header>
+
+  <div id="page" class="page"></div>
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="list">
+    <div class="empty pulse">Scanning page for videos…</div>
+  </main>
+
+  <footer>
+    <span id="stats"></span>
+    <button id="clear" class="link">Clear captured</button>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
