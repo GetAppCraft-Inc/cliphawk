@@ -1,31 +1,51 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ClipHawk</title>
   <link rel="stylesheet" href="popup.css">
 </head>
-<body>
-  <header>
-    <div class="brand">
-      <img src="icons/icon32.png" alt="" width="22" height="22">
-      <span>Clip<b>Hawk</b></span>
-    </div>
-    <button id="rescan" class="icon-btn" title="Rescan page" aria-label="Rescan page">↻</button>
+<body class="popup-page">
+  <header class="app-header">
+    <div class="brand"><img src="icons/icon48.png" alt="" width="30" height="30"><span>Clip<b>Hawk</b></span><span class="version" id="version"></span></div>
+    <button id="settings-toggle" class="icon-btn" title="Preferences" aria-label="Preferences" aria-expanded="false" aria-controls="settings">⚙</button>
   </header>
 
-  <div id="page" class="page"></div>
-  <div id="banner" class="banner" hidden></div>
+  <section class="page-context" aria-label="Current page">
+    <div class="context-label"><span class="status-dot"></span><span id="site">CURRENT TAB</span></div>
+    <div id="page" class="page">Finding videos…</div>
+  </section>
 
-  <main id="list">
-    <div class="empty pulse">Scanning page for videos…</div>
-  </main>
+  <section id="settings" class="settings" aria-label="Preferences" hidden>
+    <div class="settings-heading"><strong>Make it yours</strong><span>Saved on this device</span></div>
+    <div class="settings-grid">
+      <label>Appearance<select id="theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+      <label>Preferred quality<select id="quality"><option value="best">Best available</option><option value="720">Up to 720p</option><option value="480">Up to 480p</option></select></label>
+    </div>
+    <label class="check-label"><input id="save-as" type="checkbox"> Ask where to save each file</label>
+    <div id="settings-status" class="note" role="status"></div>
+  </section>
 
-  <footer>
-    <span id="stats"></span>
-    <button id="clear" class="link">Clear captured</button>
-  </footer>
+  <div id="banner" class="banner" role="status" hidden></div>
+  <section class="toolbar" aria-label="Find videos">
+    <div class="section-heading"><h1>Videos on this page <span id="count" class="count">0</span></h1><button id="rescan" class="text-btn" title="Scan the page again">↻ Rescan</button></div>
+    <label class="search-box"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search by name, site, or quality" aria-label="Search videos" autocomplete="off"></label>
+    <div class="filter-row">
+      <div class="filters" role="group" aria-label="Video format">
+        <button class="filter active" data-kind="all" aria-pressed="true">All</button>
+        <button class="filter" data-kind="file" aria-pressed="false">Files</button>
+        <button class="filter" data-kind="hls" aria-pressed="false">HLS</button>
+        <button class="filter" data-kind="dash" aria-pressed="false">DASH</button>
+      </div>
+      <select id="sort" aria-label="Sort videos"><option value="recommended">Recommended</option><option value="size">Largest first</option><option value="duration">Longest first</option><option value="newest">Newest first</option></select>
+    </div>
+    <div class="utility-row"><label class="check-label"><input id="ready-only" type="checkbox"> Downloadable only</label><button id="copy-all" class="text-btn" disabled>Copy links</button></div>
+  </section>
 
+  <main id="list" aria-label="Detected videos" aria-busy="true"><div class="empty pulse"><span class="empty-symbol" aria-hidden="true">◎</span><b>Looking for videos</b><p>Checking the players on this page…</p></div></main>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <footer><span id="stats">Scanning…</span><button id="clear" class="text-btn">Clear captured</button></footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

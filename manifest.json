@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ClipHawk — Video Grabber",
   "short_name": "ClipHawk",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Spots the main video on any page (ignoring ads) and downloads it — MP4/WebM files, HLS and DASH streams. Encrypted streams are skipped.",
   "minimum_chrome_version": "111",
   "permissions": [

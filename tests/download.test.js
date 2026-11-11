@@ -54,6 +54,22 @@ test('cancellation interrupts retry backoff and starts no further requests', asy
   assert.equal(mock.mock.callCount(), 1);
 });
 
+test('retry progress resets even when the next response starts with an equally large chunk', async t => {
+  let attempts = 0;
+  const progress = [];
+  t.mock.method(globalThis, 'fetch', async () => {
+    attempts++;
+    if (attempts > 1) return new Response(new Uint8Array([4, 5, 6]));
+    return new Response(new ReadableStream({
+      start(stream) { stream.enqueue(new Uint8Array([1, 2, 3])); },
+      pull(stream) { stream.error(new Error('Connection reset')); }
+    }));
+  });
+  const bytes = await fetchBytes({ url: item.url }, { retryDelay: 1, onBytes: got => progress.push(got) });
+  assert.deepEqual(bytes, new Uint8Array([4, 5, 6]));
+  assert.deepEqual(progress, [0, 3, 0, 3]);
+});
+
 test('request timeout terminates a stalled response', async t => {
   t.mock.method(globalThis, 'fetch', (_url, { signal }) => new Promise((_resolve, reject) => {
     signal.addEventListener('abort', () => reject(signal.reason), { once: true });

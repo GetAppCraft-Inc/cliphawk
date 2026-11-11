@@ -4,8 +4,20 @@ import {
 } from './lib/common.js';
 import { parseHls } from './lib/hls.js';
 import { parseDash } from './lib/dash.js';
+import { DEFAULT_PREFERENCES, readPreferences, savePreferences, applyTheme, preferredVariant } from './lib/preferences.js';
+import { canDownload, selectCandidates } from './lib/candidates.js';
 
 const $ = s => document.querySelector(s);
+let preferences = { ...DEFAULT_PREFERENCES };
+let scanning = false;
+let state = { candidates: [], frames: [], ctx: null, cards: new Map() };
+let filterKind = 'all';
+
+function notice(message, error = false) {
+  $('#notice').hidden = !message;
+  $('#notice').textContent = message;
+  $('#notice').className = error ? 'notice err' : 'notice';
+}
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -154,13 +166,18 @@ async function startDownload(c, variantIdx, ctx) {
     let ext = extOf(c.url);
     if (!ext) ext = /webm/.test(c.contentType) ? 'webm' : 'mp4';
     await setRefererRule({ ruleId: 1, pageUrl: ctx.pageUrl, tabId: chrome.tabs.TAB_ID_NONE, domains: [hostOf(c.url)] });
-    await chrome.downloads.download({ url: c.url, filename: `${title}.${ext}`, conflictAction: 'uniquify' });
+    await chrome.downloads.download({ url: c.url, filename: `${title}.${ext}`, conflictAction: 'uniquify', saveAs: preferences.saveAs });
     return 'Download started';
   }
   const id = crypto.randomUUID();
-  const job = { id, kind: c.kind, url: c.url, variant: variantIdx, pageUrl: ctx.pageUrl, title };
+  const job = { id, kind: c.kind, url: c.url, variant: variantIdx, pageUrl: ctx.pageUrl, title, saveAs: preferences.saveAs };
   await chrome.storage.session.set({ [`job:${id}`]: job });
-  await chrome.tabs.create({ url: chrome.runtime.getURL(`downloader.html?job=${id}`), active: true, index: ctx.tabIndex + 1 });
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`downloader.html?job=${id}`), active: true, index: ctx.tabIndex + 1 });
+  } catch (error) {
+    await chrome.storage.session.remove(`job:${id}`);
+    throw error;
+  }
   return 'Opened downloader';
 }
 
@@ -176,16 +193,16 @@ function shortUrl(u) {
 function card(c, ctx, isMain) {
   const i = c.info || {};
   const kindLabel = { hls: 'HLS', dash: 'DASH', file: (extOf(c.url) || 'video').toUpperCase() }[c.kind];
-  const blocked = i.encrypted || !!i.error;
+  const blocked = !canDownload(c);
 
   const tags = h('div', { class: 'tags' },
-    isMain && h('span', { class: 'tag star' }, '★ Main video'),
+    isMain && h('span', { class: 'tag star' }, '★ TOP PICK'),
     h('span', { class: 'tag kind' }, kindLabel),
     i.height ? h('span', { class: 'tag' }, `${i.height}p`) : null,
     i.encrypted && h('span', { class: 'tag lock' }, `🔒 Encrypted${i.keyMethod ? ` (${i.keyMethod})` : ''}`),
     i.live && h('span', { class: 'tag live' }, '● Live'),
     c.likelyAd && h('span', { class: 'tag ad' }, 'Likely ad'),
-    c.fromDom && h('span', { class: 'tag' }, 'from <video>')
+    c.fromDom && h('span', { class: 'tag' }, 'In page')
   );
 
   const meta = [
@@ -193,29 +210,31 @@ function card(c, ctx, isMain) {
     i.variants?.length > 1 ? `${i.variants.length} qualities` : '',
     formatBytes(c.size),
     i.separateAudio ? 'separate audio track' : ''
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean);
 
   let select = null;
   if (i.variants?.length > 1 && !blocked) {
     select = h('select', { 'aria-label': 'Video quality' }, i.variants.map((label, idx) => h('option', { value: idx }, label)));
+    select.value = String(preferredVariant(i.variants, preferences.quality));
   }
 
   const status = h('div', { class: 'note', role: 'status' });
   const dlBtn = h('button', {
-    class: 'btn',
+    class: 'btn download-btn',
     disabled: blocked,
     onclick: async () => {
       dlBtn.disabled = true;
       try {
         status.className = 'note';
         status.textContent = await startDownload(c, select ? Number(select.value) : 0, ctx);
+        dlBtn.textContent = 'Started ✓';
       } catch (e) {
         status.className = 'note err';
         status.textContent = `Failed: ${e.message || e}`;
         dlBtn.disabled = false;
       }
     }
-  }, i.encrypted ? 'Skipped' : 'Download');
+  }, blocked ? 'Unavailable' : 'Download ↓');
 
   const copyBtn = h('button', {
     class: 'btn ghost',
@@ -232,14 +251,19 @@ function card(c, ctx, isMain) {
     }
   }, 'Copy');
 
-  return h('div', { class: `card${isMain ? ' main' : ''}` },
+  let name;
+  try { name = decodeURIComponent(new URL(c.url).pathname.split('/').filter(Boolean).pop() || 'Video'); } catch { name = 'Video'; }
+  return h('article', { class: `card${isMain ? ' main' : ''}`, 'aria-label': `${kindLabel}: ${name}` },
     tags,
-    h('div', { class: 'url', title: c.url }, shortUrl(c.url)),
-    meta && h('div', { class: 'meta' }, meta),
-    i.encrypted && h('div', { class: 'note' }, 'Encrypted chunks — skipped for now.'),
+    h('div', { class: 'card-heading' }, h('span', { class: 'media-mark', 'aria-hidden': 'true' }, '▶'),
+      h('div', { class: 'media-heading' }, h('h2', { class: 'media-title', title: isMain ? ctx.title : name }, isMain ? (ctx.title || name) : name),
+        h('div', { class: 'url', title: c.url }, shortUrl(c.url)))),
+    meta.length > 0 && h('div', { class: 'meta' }, meta.map(text => h('span', {}, text))),
+    i.encrypted && h('div', { class: 'note' }, 'This stream is protected and cannot be downloaded.'),
+    c.kind === 'dash' && i.live && h('div', { class: 'note' }, 'Live DASH downloads are not supported.'),
     i.error && h('div', { class: 'note err' }, i.error),
     i.note && h('div', { class: 'note' }, i.note),
-    c.why?.length ? h('div', { class: 'note' }, `Why: ${c.why.join(', ')}`) : null,
+    c.why?.length ? h('details', { class: 'details' }, h('summary', {}, 'Detection details'), h('div', { class: 'note' }, c.why.join(' · '))) : null,
     h('div', { class: 'actions' }, select, copyBtn, dlBtn),
     status
   );
@@ -249,25 +273,104 @@ function renderEmpty(frames) {
   const mse = frames.some(f => f.mse);
   const hasBlob = frames.some(f => f.videos.some(v => v.blob));
   $('#list').replaceChildren(h('div', { class: 'empty' },
+    h('span', { class: 'empty-symbol', 'aria-hidden': 'true' }, '◎'),
     h('b', {}, 'No videos detected yet'),
-    hasBlob || mse
+    h('p', {}, hasBlob || mse
       ? 'This player streams via MediaSource. Reload the page and press play so ClipHawk can catch the stream manifest.'
-      : 'Press play on the video, then open ClipHawk again. If the page was open before installing, reload it.'
+      : 'Press play on the page, then select Rescan. If the page was open before installing, reload it.')
   ));
 }
 
-async function main() {
+function visibleCandidates() {
+  return selectCandidates(state.candidates, {
+    query: $('#search').value, kind: filterKind, sort: $('#sort').value, readyOnly: $('#ready-only').checked
+  });
+}
+
+function resetFilters() {
+  $('#search').value = '';
+  $('#ready-only').checked = false;
+  filterKind = 'all';
+  updateFilterButtons();
+  render();
+}
+
+function updateFilterButtons() {
+  for (const button of document.querySelectorAll('[data-kind]')) {
+    const selected = button.dataset.kind === filterKind;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  }
+}
+
+function render() {
+  if (scanning) return;
+  const visible = visibleCandidates();
+  const real = visible.filter(c => !c.likelyAd);
+  const ads = visible.filter(c => c.likelyAd);
+  const ready = state.candidates.filter(c => !c.likelyAd && canDownload(c));
+  $('#count').textContent = String(state.candidates.length);
+  $('#stats').textContent = `${visible.length} of ${state.candidates.length} shown · ${ready.length} ready`;
+  $('#copy-all').disabled = !real.some(canDownload);
+  $('#copy-all').title = 'Copy downloadable links in this filter, excluding likely ads';
+  $('#clear').disabled = !state.candidates.length;
+  const list = $('#list');
+  list.replaceChildren();
+  if (!state.candidates.length) return renderEmpty(state.frames);
+  if (!visible.length) {
+    list.append(h('div', { class: 'empty' }, h('span', { class: 'empty-symbol', 'aria-hidden': 'true' }, '⌕'),
+      h('b', {}, 'No matching videos'), h('p', {}, 'Try another search or show all formats.'),
+      h('button', { class: 'btn ghost', onclick: resetFilters }, 'Reset filters')));
+    return;
+  }
+  const best = state.candidates.find(c => !c.likelyAd && canDownload(c)) || state.candidates.find(c => !c.likelyAd);
+  const cachedCard = c => {
+    if (!state.cards.has(c.url)) state.cards.set(c.url, card(c, state.ctx, c === best));
+    return state.cards.get(c.url);
+  };
+  real.forEach(c => list.append(cachedCard(c)));
+  if (!real.length && ads.length) list.append(h('div', { class: 'empty' }, h('b', {}, 'Only likely ads match'), h('p', {}, 'Play the main video and rescan, or review the captured clips below.')));
+  if (ads.length) list.append(h('details', { class: 'ad-group' }, h('summary', {}, `Likely ads · ${ads.length}`), ads.map(cachedCard)));
+}
+
+async function scan() {
+  if (scanning) return;
+  scanning = true;
+  $('#rescan').disabled = true;
+  $('#clear').disabled = true;
+  $('#copy-all').disabled = true;
+  $('#list').setAttribute('aria-busy', 'true');
+  $('#banner').hidden = true;
+  notice('');
+  $('#stats').textContent = 'Scanning…';
+  $('#list').replaceChildren(h('div', { class: 'empty pulse' }, h('b', {}, 'Looking for videos…')));
+  try {
+    await scanPage();
+  } catch (e) {
+    $('#list').replaceChildren(h('div', { class: 'empty' }, h('b', {}, 'Couldn’t scan this page'), h('p', {}, String(e.message || e))));
+    $('#stats').textContent = 'Scan failed · try again';
+  } finally {
+    scanning = false;
+    $('#rescan').disabled = false;
+    $('#list').setAttribute('aria-busy', 'false');
+  }
+}
+
+async function scanPage() {
+  state = { candidates: [], frames: [], ctx: null, cards: new Map() };
+  $('#count').textContent = '0';
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return;
+  if (!tab) throw new Error('No active tab found. Open a video page and try again.');
   $('#page').textContent = tab.title || tab.url || '';
+  $('#page').title = tab.title || '';
+  $('#site').textContent = hostOf(tab.url) || 'CURRENT TAB';
 
   let frames = [];
   try {
     const res = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: collectDom });
     frames = res.map(r => r.result).filter(Boolean);
   } catch {
-    $('#list').replaceChildren(h('div', { class: 'empty' }, h('b', {}, 'Can’t scan this page'), 'Browser pages and the Web Store are off-limits to extensions.'));
-    return;
+    throw new Error('Browser pages and the Web Store cannot be scanned. Open a website with a video.');
   }
 
   const net = (await chrome.runtime.sendMessage({ type: 'get-tab', tabId: tab.id })) || [];
@@ -278,7 +381,6 @@ async function main() {
     }
   }
   let cands = [...byUrl.values()];
-  $('#stats').textContent = `${net.length} stream${net.length === 1 ? '' : 's'} captured`;
 
   const drm = frames.find(f => f.drm)?.drm;
   if (drm) {
@@ -287,49 +389,108 @@ async function main() {
     banner.textContent = `🔒 This page uses DRM (${drm}). Protected streams are skipped.`;
   }
 
-  if (!cands.length) return renderEmpty(frames);
+  state.frames = frames;
+  state.ctx = { pageUrl: tab.url, title: tab.title, tabIndex: tab.index, tabId: tab.id };
 
   $('#list').replaceChildren(h('div', { class: 'empty pulse' }, `Analyzing ${cands.length} candidate${cands.length > 1 ? 's' : ''}…`));
 
   const pageUrl = tab.url;
-  await setRefererRule({ ruleId: 2, pageUrl, tabId: chrome.tabs.TAB_ID_NONE, domains: cands.map(c => hostOf(c.url)) });
-  await Promise.all(cands.map(analyze));
+  if (cands.length) {
+    await setRefererRule({ ruleId: 2, pageUrl, tabId: chrome.tabs.TAB_ID_NONE, domains: cands.map(c => hostOf(c.url)) });
+    try {
+      for (let offset = 0; offset < cands.length; offset += 4) await Promise.all(cands.slice(offset, offset + 4).map(analyze));
+    } finally {
+      await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [2] }).catch(() => {});
+    }
+  }
 
   // Hide HLS variant/audio playlists that belong to a captured master playlist.
   const children = new Set(cands.flatMap(c => c.info?.childUrls || []));
   cands = cands.filter(c => !children.has(c.url));
 
   rank(cands, frames);
+  const topPick = cands.find(c => !c.likelyAd && canDownload(c)) || cands.find(c => !c.likelyAd);
+  if (topPick) topPick.title = tab.title || '';
 
-  const ctx = { pageUrl, title: tab.title, tabIndex: tab.index };
-  const ads = cands.filter(c => c.likelyAd);
-  const real = cands.filter(c => !c.likelyAd);
-  const main = real[0];
-  const list = $('#list');
-  list.replaceChildren();
-
-  if (main) {
-    list.append(card(main, ctx, true));
-  } else {
-    list.append(h('div', { class: 'empty' }, h('b', {}, 'Only ad videos found'), 'Let the ad finish, play the actual video, then rescan.'));
-  }
-  const others = real.slice(1);
-  if (others.length) {
-    list.append(h('div', { class: 'section-title' }, `Other videos (${others.length})`));
-    others.forEach(c => list.append(card(c, ctx, false)));
-  }
-  if (ads.length) {
-    list.append(h('details', {}, h('summary', {}, `Likely ads (${ads.length})`), ads.map(c => card(c, ctx, false))));
-  }
+  state.candidates = cands;
+  scanning = false;
+  render();
 }
 
-$('#rescan').addEventListener('click', () => location.reload());
+$('#rescan').addEventListener('click', scan);
+$('#search').addEventListener('input', render);
+$('#sort').addEventListener('change', render);
+$('#ready-only').addEventListener('change', render);
+for (const button of document.querySelectorAll('[data-kind]')) button.addEventListener('click', () => {
+  filterKind = button.dataset.kind;
+  updateFilterButtons();
+  render();
+});
+$('#copy-all').addEventListener('click', async () => {
+  const urls = visibleCandidates().filter(c => !c.likelyAd && canDownload(c)).map(c => c.url);
+  if (!urls.length) return;
+  try {
+    await navigator.clipboard.writeText(urls.join('\n'));
+    notice(`Copied ${urls.length} downloadable link${urls.length === 1 ? '' : 's'}.`);
+  } catch { notice('Could not copy links. Check clipboard access and try again.', true); }
+});
 $('#clear').addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab) await chrome.runtime.sendMessage({ type: 'clear-tab', tabId: tab.id });
-  location.reload();
+  if (!state.ctx || scanning) return;
+  try {
+    await chrome.runtime.sendMessage({ type: 'clear-tab', tabId: state.ctx.tabId });
+    state.candidates = [];
+    state.cards.clear();
+    render();
+    notice('Captured list cleared. Rescan to check the page again.');
+  } catch { notice('Could not clear captured videos. Try again.', true); }
 });
 
-main().catch(e => {
-  $('#list').replaceChildren(h('div', { class: 'empty' }, h('b', {}, 'Something went wrong'), String(e.message || e)));
+$('#settings-toggle').addEventListener('click', () => {
+  const open = $('#settings').hidden;
+  $('#settings').hidden = !open;
+  $('#settings-toggle').setAttribute('aria-expanded', String(open));
 });
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('#settings').hidden) {
+    $('#settings').hidden = true;
+    $('#settings-toggle').setAttribute('aria-expanded', 'false');
+    $('#settings-toggle').focus();
+    event.preventDefault();
+  }
+});
+document.addEventListener('click', event => {
+  if (!$('#settings').hidden && !$('#settings').contains(event.target) && !$('#settings-toggle').contains(event.target)) {
+    $('#settings').hidden = true;
+    $('#settings-toggle').setAttribute('aria-expanded', 'false');
+  }
+});
+let preferenceWrite = Promise.resolve();
+for (const id of ['theme', 'quality', 'save-as']) $(`#${id}`).addEventListener('change', () => {
+  preferences = { theme: $('#theme').value, quality: $('#quality').value, saveAs: $('#save-as').checked };
+  applyTheme(preferences.theme);
+  if (id === 'quality') {
+    for (const c of state.candidates) {
+      const select = state.cards.get(c.url)?.querySelector('select');
+      if (select) select.value = String(preferredVariant(c.info.variants, preferences.quality));
+    }
+  }
+  const next = { ...preferences };
+  preferenceWrite = preferenceWrite.catch(() => {}).then(() => savePreferences(next)).then(() => {
+    $('#settings-status').textContent = 'Preferences saved';
+    $('#settings-status').className = 'note';
+  }).catch(() => {
+    $('#settings-status').textContent = 'Could not save preferences. Try again.';
+    $('#settings-status').className = 'note err';
+  });
+});
+
+async function init() {
+  $('#version').textContent = `v${chrome.runtime.getManifest().version}`;
+  try { preferences = await readPreferences(); } catch { /* Use defaults if local storage is unavailable. */ }
+  applyTheme(preferences.theme);
+  $('#theme').value = preferences.theme;
+  $('#quality').value = preferences.quality;
+  $('#save-as').checked = preferences.saveAs;
+  await scan();
+}
+init().catch(e => notice(String(e.message || e), true));

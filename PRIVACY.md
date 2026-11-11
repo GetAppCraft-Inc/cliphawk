@@ -12,7 +12,7 @@ you select. Those sites still receive ordinary network requests.
 | Access to all websites | Discover and fetch media hosted on pages and third-party CDNs. |
 | `webRequest` | Observe media response URLs, types, and sizes for each tab. |
 | `activeTab`, `scripting` | Inspect video elements on the active page when the popup opens. |
-| `storage` | Hold captured media URLs and download jobs in browser session storage. |
+| `storage` | Hold captured URLs/jobs in session storage and save appearance, quality, and save-location preferences locally. |
 | `downloads` | Save selected media using the browser's download manager. |
 | `declarativeNetRequestWithHostAccess` | Set source-page Referer/Origin headers for media servers that require them. |
 
@@ -25,3 +25,10 @@ developer. Session storage ends with the browser session; downloaded files and
 browser download history remain until you remove them. Copying a URL places it
 on your system clipboard. Avoid sharing captured URLs if they grant access to
 private media.
+
+Appearance, preferred quality, and the save-location prompt setting persist in
+local extension storage between browser sessions. They do not include browsing
+history or media URLs, and are not synchronized to a cloud account. Uninstalling
+ClipHawk removes these preferences. The **Copy links** action writes the matching
+downloadable URLs to the system clipboard; ffmpeg commands are copied only when
+you select **Copy command**.

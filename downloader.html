@@ -3,45 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ClipHawk · Downloading</title>
+  <title>ClipHawk · Download</title>
   <link rel="icon" href="icons/icon32.png">
   <link rel="stylesheet" href="popup.css">
-  <style>
-    body { width: auto; max-height: none; min-height: 100vh; display: grid; place-items: start center; padding: 48px 16px; }
-    .wrap { width: min(640px, 100%); }
-    h1 { font-size: 20px; margin: 0 0 4px; word-break: break-word; }
-    .sub { color: var(--muted); font-size: 12px; margin-bottom: 18px; word-break: break-all; }
-    .track { margin-bottom: 14px; }
-    .track-head { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
-    .bar { height: 10px; border-radius: 999px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--border); }
-    .fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s; }
-    #status { margin: 16px 0 10px; font-size: 13.5px; }
-    #status.err { color: var(--bad); }
-    #status.ok { color: var(--ok); }
-    pre {
-      background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px;
-      font-size: 12px; white-space: pre-wrap; word-break: break-all;
-    }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  </style>
+  <link rel="stylesheet" href="downloader.css">
 </head>
-<body>
-  <div class="wrap">
-    <div class="brand" style="margin-bottom:18px">
-      <img src="icons/icon32.png" alt="" width="24" height="24"><span>Clip<b>Hawk</b></span>
-    </div>
-    <div class="card">
-      <h1 id="title">Preparing…</h1>
-      <div class="sub" id="source"></div>
-      <div id="tracks"></div>
-      <div id="status" role="status" aria-live="polite">Reading manifest…</div>
-      <div id="hint" hidden></div>
-      <div class="row">
-        <button class="btn ghost" id="cancel">Cancel</button>
+<body class="downloader-page">
+  <main class="download-wrap">
+    <header class="download-header">
+      <div class="brand"><img src="icons/icon48.png" alt="" width="32" height="32"><span>Clip<b>Hawk</b></span></div>
+      <span class="download-eyebrow">DOWNLOAD MANAGER</span>
+    </header>
+    <section class="download-panel" aria-labelledby="title">
+      <div class="download-heading"><span class="state-pill" id="state">Preparing</span><span class="tag" id="format">STREAM</span></div>
+      <h1 id="title">Getting your video ready</h1>
+      <div class="source-line" id="source"></div>
+      <div class="download-stats" aria-label="Transfer statistics">
+        <div><span>Transferred</span><strong id="transferred">0 B</strong></div>
+        <div><span>Average speed</span><strong id="speed">—</strong></div>
+        <div><span>Elapsed</span><strong id="elapsed">0:00</strong></div>
       </div>
-    </div>
-    <p class="note">Keep this tab open until the browser shows the file as saved.</p>
-  </div>
+      <div id="tracks" class="download-tracks"></div>
+      <div id="status" role="status" aria-live="polite">Reading the stream manifest…</div>
+      <div class="download-actions">
+        <button class="btn" id="pause" disabled>Pause</button>
+        <button class="btn" id="retry" hidden>Retry download</button>
+        <button class="btn ghost" id="cancel">Cancel download</button>
+        <button class="btn ghost" id="close" hidden>Close tab</button>
+      </div>
+      <p class="download-help" id="control-hint">Keep this tab open until your files have been saved.</p>
+    </section>
+    <section class="download-panel saved-panel" id="saved" aria-labelledby="saved-heading" hidden>
+      <h2 id="saved-heading">Your files</h2>
+      <div id="files"></div>
+    </section>
+    <section class="download-panel hint-panel" id="hint" aria-labelledby="hint-heading" hidden>
+      <div class="hint-heading"><h2 id="hint-heading">One more step</h2><button class="btn ghost" id="copy-command">Copy command</button></div>
+      <p id="hint-description"></p>
+      <pre id="command"></pre>
+      <div class="note" id="copy-status" role="status"></div>
+    </section>
+    <p class="download-footnote">Made for the videos you want to keep.</p>
+  </main>
   <script type="module" src="downloader.js"></script>
 </body>
 </html>

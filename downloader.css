@@ -1,0 +1,52 @@
+body.downloader-page {
+  width: auto; max-width: none; max-height: none; min-height: 100vh; overflow: auto;
+  padding: 40px 24px; background: var(--bg); font-size: 14px;
+}
+.downloader-page .download-wrap { width: min(720px, 100%); margin: 0 auto; padding: 0; }
+.downloader-page .download-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 28px; gap: 16px; }
+.downloader-page .brand { font-size: 20px; gap: 10px; }
+.download-eyebrow { font-size: 10px; letter-spacing: .16em; color: var(--muted); font-weight: 700; }
+.download-panel { border: 1px solid var(--border); border-radius: 20px; padding: 28px; background: var(--panel); margin-bottom: 16px; }
+.download-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; gap: 10px; }
+.state-pill { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 11px; font-weight: 700; }
+.state-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state-pill.ok { color: var(--ok); }
+.state-pill.err { color: var(--bad); }
+.downloader-page h1 { font-size: clamp(22px, 4vw, 29px); font-weight: 650; line-height: 1.25; letter-spacing: -.03em; margin: 0 0 10px; overflow-wrap: anywhere; }
+.downloader-page h2 { font-size: 15px; margin: 0 0 16px; }
+.source-line { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.download-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin: 28px 0; padding: 19px 0; border-block: 1px solid var(--border); }
+.download-stats > div { min-width: 0; padding-inline: 18px; border-left: 1px solid var(--border); }
+.download-stats > div:first-child { padding-left: 0; border-left: 0; }
+.download-stats span { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+.download-stats strong { font-size: clamp(16px, 3vw, 22px); font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.download-track + .download-track { margin-top: 22px; }
+.download-track-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.download-track-name { font-size: 12px; font-weight: 600; }
+.download-track-percent { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.download-bar { height: 7px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }
+.download-fill { height: 100%; width: 0; border-radius: 5px; background: var(--accent); transition: width .2s ease; }
+.download-track-detail { font-size: 11px; color: var(--muted); margin-top: 7px; }
+.downloader-page #status { margin-top: 24px; font-size: 13px; overflow-wrap: anywhere; }
+.downloader-page #status.err { color: var(--bad); }
+.downloader-page #status.ok { color: var(--ok); }
+.download-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.downloader-page .download-actions .btn { padding: 10px 17px; }
+.download-help { margin: 15px 0 0; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.saved-file { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.saved-file:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.saved-file-name { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.saved-file .btn { flex-shrink: 0; font-size: 11px; }
+.hint-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.hint-heading h2 { margin: 0; }
+.hint-panel p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.hint-panel pre { border-radius: 10px; border: 1px solid var(--border); padding: 14px; background: var(--panel-2); font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0; }
+.download-footnote { text-align: center; font-size: 11px; color: var(--muted); margin: 25px 0; }
+.downloader-page [hidden] { display: none !important; }
+@media (max-width: 520px) {
+  body.downloader-page { padding: 24px 14px; }
+  .download-panel { padding: 20px; border-radius: 16px; }
+  .download-eyebrow { display: none; }
+  .download-stats > div { padding-inline: 10px; }
+  .saved-file { align-items: flex-start; flex-direction: column; }
+}

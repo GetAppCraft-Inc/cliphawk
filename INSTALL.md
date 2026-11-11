@@ -14,6 +14,11 @@ other development tools are needed to use the downloaded extension.
 7. Pin ClipHawk from the browser's Extensions menu. Open a video page, reload it,
    press play, then click ClipHawk and choose **Download**.
 
+Use search and the format filters to narrow the list. The gear button opens theme,
+preferred-quality, and save-location preferences. On the downloader page, **Pause**
+finishes active requests before stopping; **Retry download** restarts unfinished
+tracks and keeps files already saved. Direct files use the browser's download controls.
+
 Keep the extracted folder in place. Chrome loads the extension from this folder.
 This GitHub distribution uses Developer mode; it is not a one-click Web Store
 installation or a signed installer. Managed browsers may prevent unpacked installs.
@@ -41,8 +46,8 @@ on the ClipHawk card at the extensions page. Reload video pages afterward.
 Every release includes a matching `.zip.sha256` file. Compare its hash with:
 
 ```powershell
-Get-FileHash ./cliphawk-1.0.1.zip -Algorithm SHA256
+Get-FileHash ./cliphawk-1.1.0.zip -Algorithm SHA256
 ```
 
-On Linux, use `sha256sum -c cliphawk-1.0.1.zip.sha256`; on macOS, use
-`shasum -a 256 -c cliphawk-1.0.1.zip.sha256`. Substitute the downloaded version.
+On Linux, use `sha256sum -c cliphawk-1.1.0.zip.sha256`; on macOS, use
+`shasum -a 256 -c cliphawk-1.1.0.zip.sha256`. Substitute the downloaded version.

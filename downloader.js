@@ -1,27 +1,54 @@
-import { fetchText, formatBytes, setRefererRule, sanitizeFilename } from './lib/common.js';
+import { formatBytes, setRefererRule, sanitizeFilename, hostOf } from './lib/common.js';
 import { parseHls, pickAudio } from './lib/hls.js';
 import { parseDash, dashTrackPlan } from './lib/dash.js';
 import { fetchBytes, waitForDownload } from './lib/download.js';
+import { PauseGate, fetchTrack, elapsedLabel } from './lib/transfer.js';
+import { readPreferences, applyTheme } from './lib/preferences.js';
 
-const $ = s => document.querySelector(s);
-const CONCURRENCY = 6;
+const $ = selector => document.querySelector(selector);
 const MIME = { ts: 'video/mp2t', mp4: 'video/mp4', m4a: 'audio/mp4', webm: 'video/webm', aac: 'audio/aac' };
-
-const ctrl = new AbortController();
-let ruleId = null;
-let cancelled = false;
+const jobId = new URLSearchParams(location.search).get('job');
+let job, plan, ruleId, controller, gate, timer, activeDownload;
+let busy = false, cancelled = false, activeRequests = 0, phase = 'preparing';
+let startedAt = 0, transferred = 0;
+const saved = new Map();
 
 class EncryptedError extends Error {}
 
-function setStatus(text, cls = '') {
-  const el = $('#status');
-  el.textContent = text;
-  el.className = cls;
+function setStatus(text, state = 'Downloading', tone = '') {
+  // Avoid repeating live-region announcements for every chunk that starts or ends.
+  if ($('#status').textContent !== text) $('#status').textContent = text;
+  $('#status').className = tone;
+  if ($('#state').textContent !== state) $('#state').textContent = state;
+  $('#state').className = `state-pill ${tone}`;
 }
 
-// ---------- plans ----------
+function updateStats() {
+  const seconds = startedAt ? (Date.now() - startedAt) / 1000 : 0;
+  $('#transferred').textContent = formatBytes(transferred) || '0 B';
+  $('#elapsed').textContent = elapsedLabel(seconds);
+  $('#speed').textContent = phase === 'fetching' && gate?.paused && !activeRequests ? 'Paused'
+    : transferred && seconds > 0 ? `${formatBytes(transferred / seconds)}/s` : '—';
+}
+
+function updatePauseStatus() {
+  if (!busy || phase !== 'fetching' || cancelled) return;
+  if (gate.paused) {
+    setStatus(activeRequests ? `Finishing ${activeRequests} active request${activeRequests === 1 ? '' : 's'} before pausing…`
+      : 'Paused. Resume when you are ready.', activeRequests ? 'Pausing' : 'Paused');
+  } else {
+    setStatus(plan?.tracks.some(track => track.live)
+      ? 'Downloading the segments available in this live stream right now.' : 'Downloading your media…');
+  }
+  updateStats();
+}
+
+async function manifest(url, signal) {
+  return new TextDecoder().decode(await fetchBytes({ url }, { signal, timeout: 15000 }));
+}
+
 function hlsTrack(media, role) {
-  if (media.encrypted) throw new EncryptedError(`Stream is encrypted (${media.keyMethod}) — skipped.`);
+  if (media.encrypted) throw new EncryptedError(`This stream is encrypted (${media.keyMethod}) and cannot be downloaded.`);
   if (!media.segments.length) throw new Error('Playlist has no segments');
   const first = media.segments[0].url;
   const fmp4 = !!media.map || /\.(m4s|mp4|m4v|cmfv|cmfa|m4a)(\?|$)/i.test(first);
@@ -29,167 +56,245 @@ function hlsTrack(media, role) {
   return { role, ext, init: media.map, segments: media.segments, live: media.live };
 }
 
-async function planHls(job) {
-  const pl = parseHls(await fetchText(job.url), job.url);
-  if (pl.type !== 'master') return { label: '', tracks: [hlsTrack(pl, 'video')] };
-  if (pl.encrypted) throw new EncryptedError(`Stream is encrypted (${pl.keyMethod}) — skipped.`);
-  const v = pl.variants[job.variant] || pl.variants[0];
-  if (!v) throw new Error('Master playlist has no variants');
-  const tracks = [hlsTrack(parseHls(await fetchText(v.uri), v.uri), 'video')];
-  const aud = pickAudio(pl, v);
-  if (aud) tracks.push(hlsTrack(parseHls(await fetchText(aud.uri), aud.uri), 'audio'));
-  return { label: v.label, tracks };
+async function planHls(signal) {
+  const playlist = parseHls(await manifest(job.url, signal), job.url);
+  if (playlist.type !== 'master') return { label: '', tracks: [hlsTrack(playlist, 'video')] };
+  if (playlist.encrypted) throw new EncryptedError(`This stream is encrypted (${playlist.keyMethod}) and cannot be downloaded.`);
+  const variant = playlist.variants[job.variant] || playlist.variants[0];
+  if (!variant) throw new Error('Master playlist has no variants');
+  const tracks = [hlsTrack(parseHls(await manifest(variant.uri, signal), variant.uri), 'video')];
+  const audio = pickAudio(playlist, variant);
+  if (audio) tracks.push(hlsTrack(parseHls(await manifest(audio.uri, signal), audio.uri), 'audio'));
+  return { label: variant.label, tracks };
 }
 
-async function planDash(job) {
-  const d = parseDash(await fetchText(job.url), job.url);
-  if (d.encrypted) throw new EncryptedError('DASH stream has ContentProtection (DRM) — skipped.');
-  if (d.live) throw new Error('Live DASH streams are not supported yet.');
+async function planDash(signal) {
+  const dash = parseDash(await manifest(job.url, signal), job.url);
+  if (dash.encrypted) throw new EncryptedError('This DASH stream has DRM protection and cannot be downloaded.');
+  if (dash.live) throw new Error('Live DASH streams are not supported yet.');
   const tracks = [];
-  const v = d.video[job.variant] || d.video[0];
-  if (v) tracks.push(dashTrackPlan(v));
-  if (d.audio[0]) tracks.push(dashTrackPlan(d.audio[0]));
-  if (!tracks.length) throw new Error('No audio/video representations found');
-  return { label: v?.label || 'audio', tracks };
+  const video = dash.video[job.variant] || dash.video[0];
+  if (video) tracks.push(dashTrackPlan(video));
+  if (dash.audio[0]) tracks.push(dashTrackPlan(dash.audio[0]));
+  if (!tracks.length) throw new Error('No audio/video tracks found');
+  return { label: video?.label || 'Audio', tracks };
 }
 
-// ---------- fetching ----------
-async function fetchBuf(item, onBytes) {
-  return fetchBytes(item, { signal: ctrl.signal, onBytes });
-}
-
-async function downloadTrack(track, ui) {
-  const items = track.init ? [track.init, ...track.segments] : track.segments;
-  if (!items.length) throw new Error('Stream has no downloadable segments');
-  const parts = new Array(items.length);
-  let next = 0, done = 0, bytes = 0;
-
-  if (items.length === 1) {
-    parts[0] = await fetchBuf(items[0], (got, total) => ui(total ? got / total : 0, `${formatBytes(got)}${total ? ` / ${formatBytes(total)}` : ''}`));
-    ui(1, formatBytes(parts[0].byteLength));
-    return parts;
-  }
-
-  const worker = async () => {
-    while (!ctrl.signal.aborted) {
-      const i = next++;
-      if (i >= items.length) return;
-      parts[i] = await fetchBuf(items[i]);
-      done++;
-      bytes += parts[i].byteLength;
-      ui(done / items.length, `${done}/${items.length} chunks · ${formatBytes(bytes)}`);
-    }
-  };
-  try {
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
-  } catch (e) {
-    ctrl.abort();
-    throw e;
-  }
-  ctrl.signal.throwIfAborted();
-  return parts;
-}
-
-function trackUi(track, idx) {
-  const label = track.role === 'audio' ? 'Audio' : (idx === 0 ? 'Video' : `Track ${idx + 1}`);
-  const right = document.createElement('span');
-  right.textContent = 'waiting';
+function trackUi(track, index) {
+  const label = track.role === 'audio' ? 'Audio' : 'Video';
+  const wrap = document.createElement('div');
+  wrap.className = 'download-track';
   const head = document.createElement('div');
-  head.className = 'track-head';
-  head.append(Object.assign(document.createElement('span'), { textContent: `${label} · .${track.ext}` }), right);
-  const fill = Object.assign(document.createElement('div'), { className: 'fill' });
-  const bar = Object.assign(document.createElement('div'), { className: 'bar' });
+  head.className = 'download-track-head';
+  const name = Object.assign(document.createElement('span'), { className: 'download-track-name', textContent: `${label} · ${track.ext.toUpperCase()}` });
+  const percent = Object.assign(document.createElement('span'), { className: 'download-track-percent', textContent: '0%' });
+  head.append(name, percent);
+  const bar = Object.assign(document.createElement('div'), { className: 'download-bar' });
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-label', `${label} download progress`);
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', '100');
+  const fill = Object.assign(document.createElement('div'), { className: 'download-fill' });
   bar.append(fill);
-  const wrap = Object.assign(document.createElement('div'), { className: 'track' });
-  wrap.append(head, bar);
+  const detail = Object.assign(document.createElement('div'), { className: 'download-track-detail', textContent: 'Waiting to start' });
+  wrap.append(head, bar, detail);
   $('#tracks').append(wrap);
-  return (frac, text) => { fill.style.width = `${Math.round(frac * 100)}%`; right.textContent = text; };
+  const update = ({ fraction, bytes, completed, total }, text) => {
+    const value = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+    fill.style.width = `${value}%`;
+    percent.textContent = `${value}%`;
+    bar.setAttribute('aria-valuenow', String(value));
+    detail.textContent = text || `${completed}/${total} chunks · ${formatBytes(bytes) || '0 B'}`;
+  };
+  if (saved.has(index)) update({ fraction: 1 }, 'Already saved');
+  else bar.setAttribute('aria-valuenow', '0');
+  return update;
 }
 
-async function save(parts, filename, ext) {
-  const blob = new Blob(parts, { type: MIME[ext] || 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
+async function save(parts, filename, ext, signal) {
+  const url = URL.createObjectURL(new Blob(parts, { type: MIME[ext] || 'application/octet-stream' }));
   try {
-    const id = await chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
-    return await waitForDownload(id);
+    const id = await chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: !!job.saveAs });
+    activeDownload = id;
+    if (signal.aborted) await chrome.downloads.cancel(id).catch(() => {});
+    const state = await waitForDownload(id);
+    if (state !== 'complete') throw new Error(`Browser could not save ${filename}`);
+    const items = await chrome.downloads.search({ id }).catch(() => []);
+    return { id, name: items[0]?.filename?.split(/[\\/]/).pop() || filename };
   } finally {
+    activeDownload = null;
     URL.revokeObjectURL(url);
   }
 }
 
-function showHint(files) {
-  const v = files.find(f => f.role === 'video');
-  const a = files.find(f => f.role === 'audio');
-  const lines = [];
-  if (v && a) {
-    lines.push('Video and audio were saved separately. Merge them losslessly with ffmpeg:');
-    lines.push(`ffmpeg -i "${v.name}" -i "${a.name}" -c copy "${v.name.replace(/\.[^.]+$/, '')} (merged).mp4"`);
-  } else if (v && v.name.endsWith('.ts')) {
-    lines.push('Saved as MPEG-TS (plays in VLC/mpv). To convert to MP4 without re-encoding:');
-    lines.push(`ffmpeg -i "${v.name}" -c copy "${v.name.replace(/\.ts$/, '')}.mp4"`);
+function showSavedFiles() {
+  $('#saved').hidden = !saved.size;
+  $('#files').replaceChildren();
+  for (const file of saved.values()) {
+    const row = Object.assign(document.createElement('div'), { className: 'saved-file' });
+    const name = Object.assign(document.createElement('span'), { className: 'saved-file-name', textContent: file.name });
+    const reveal = Object.assign(document.createElement('button'), { className: 'btn ghost', textContent: 'Show in folder' });
+    reveal.addEventListener('click', async () => {
+      try { await chrome.downloads.show(file.id); }
+      catch { setStatus('Could not locate that file. Check your browser downloads.', 'File unavailable', 'err'); }
+    });
+    row.append(name, reveal);
+    $('#files').append(row);
   }
-  if (!lines.length) return;
-  const hint = $('#hint');
-  hint.hidden = false;
-  const pre = document.createElement('pre');
-  pre.textContent = lines.slice(1).join('\n');
-  const p = Object.assign(document.createElement('p'), { className: 'note', textContent: lines[0] });
-  hint.replaceChildren(p, pre);
+  showHint();
+}
+
+function showHint() {
+  const files = [...saved.values()];
+  const video = files.find(file => file.role === 'video');
+  const audio = files.find(file => file.role === 'audio');
+  const windows = /Win/i.test(navigator.platform);
+  const quote = value => `'${value.replaceAll("'", windows ? "''" : "'\\''")}'`;
+  let command = '', description = '';
+  if (video && audio) {
+    command = `ffmpeg -i ${quote(video.name)} -i ${quote(audio.name)} -c copy ${quote(video.name.replace(/\.[^.]+$/, '') + ' (merged).mp4')}`;
+    description = 'Your video and audio are saved separately. Combine them without re-encoding.';
+  } else if (video?.name.endsWith('.ts')) {
+    command = `ffmpeg -i ${quote(video.name)} -c copy ${quote(video.name.replace(/\.ts$/, '.mp4'))}`;
+    description = 'This MPEG-TS file plays in VLC or mpv. You can also convert it to MP4 without re-encoding.';
+  }
+  $('#hint').hidden = !command;
+  $('#command').textContent = command;
+  $('#hint-description').textContent = `${description} With ffmpeg installed, run this in ${windows ? 'PowerShell' : 'your terminal'} from the folder containing both files (or adjust the paths).`;
 }
 
 async function run() {
-  const id = new URLSearchParams(location.search).get('job');
-  const job = (await chrome.storage.session.get(`job:${id}`))[`job:${id}`];
-  if (!job) throw new Error('Download job not found (it may have expired). Start again from the popup.');
-
-  $('#title').textContent = job.title;
-  document.title = `ClipHawk · ${job.title}`;
-  $('#source').textContent = job.url;
-
-  const me = await chrome.tabs.getCurrent();
-  if (me) {
-    ruleId = 100 + (me.id % 100000);
-    await setRefererRule({ ruleId, pageUrl: job.pageUrl, tabId: me.id });
+  if (busy || !job) return;
+  let canRetry = false;
+  busy = true;
+  cancelled = false;
+  activeRequests = 0;
+  phase = 'preparing';
+  controller = new AbortController();
+  gate = new PauseGate();
+  startedAt = Date.now();
+  transferred = 0;
+  $('#retry').hidden = true;
+  $('#close').hidden = true;
+  $('#cancel').hidden = false;
+  $('#cancel').disabled = false;
+  $('#pause').hidden = false;
+  $('#pause').disabled = true;
+  $('#pause').textContent = 'Pause';
+  $('#control-hint').textContent = 'Pause finishes active requests before stopping. Keep this tab open until saving is complete.';
+  setStatus('Reading the stream manifest…', 'Preparing');
+  updateStats();
+  timer = setInterval(updateStats, 500);
+  try {
+    const me = await chrome.tabs.getCurrent();
+    if (me) {
+      ruleId = 100 + (me.id % 100000);
+      await setRefererRule({ ruleId, pageUrl: job.pageUrl, tabId: me.id });
+    }
+    // Reuse the same snapshot on retry so saved video and a retried audio track stay aligned.
+    if (!plan) plan = job.kind === 'hls' ? await planHls(controller.signal) : await planDash(controller.signal);
+    controller.signal.throwIfAborted();
+    $('#tracks').replaceChildren();
+    const uis = plan.tracks.map(trackUi);
+    const base = sanitizeFilename(`${job.title}${plan.label ? ` [${plan.label.split(' · ')[0]}]` : ''}`);
+    for (let index = 0; index < plan.tracks.length; index++) {
+      if (saved.has(index)) continue;
+      phase = 'fetching';
+      $('#pause').disabled = false;
+      updatePauseStatus();
+      const track = plan.tracks[index];
+      const parts = await fetchTrack(track, {
+        controller, gate, onProgress: uis[index],
+        onBytes: bytes => { transferred += bytes; },
+        onActive: count => { activeRequests = count; updatePauseStatus(); }
+      });
+      await gate.wait(controller.signal);
+      phase = 'saving';
+      $('#pause').disabled = true;
+      const suffix = plan.tracks.length > 1 ? ` (${track.role})` : '';
+      const name = `${base}${suffix}.${track.ext}`;
+      setStatus(`Saving ${name}…`, 'Saving');
+      const file = await save(parts, name, track.ext, controller.signal);
+      saved.set(index, { ...file, role: track.role });
+      uis[index]({ fraction: 1 }, 'Saved to your computer');
+      showSavedFiles();
+      controller.signal.throwIfAborted();
+    }
+    phase = 'complete';
+    setStatus(`All done. ${saved.size} file${saved.size === 1 ? '' : 's'} saved to your computer.`, 'Complete', 'ok');
+    $('#control-hint').textContent = 'Your files are ready. You can safely close this tab.';
+    await chrome.storage.session.remove(`job:${jobId}`).catch(() => {});
+  } catch (error) {
+    phase = 'stopped';
+    if (cancelled) setStatus('Download cancelled. Files already saved are kept.', 'Cancelled');
+    else setStatus(error.message || String(error), error instanceof EncryptedError ? 'Protected stream' : 'Download failed', 'err');
+    canRetry = !(error instanceof EncryptedError);
+    $('#control-hint').textContent = error instanceof EncryptedError ? 'ClipHawk skips encrypted and DRM-protected streams.'
+      : 'Retry restarts unfinished tracks. Saved files are kept. If the link expired, capture it again from the source page.';
+  } finally {
+    clearInterval(timer);
+    updateStats();
+    $('#pause').hidden = true;
+    $('#cancel').hidden = true;
+    if (ruleId) await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] }).catch(() => {});
+    busy = false;
+    $('#retry').hidden = !canRetry;
+    $('#close').hidden = false;
   }
-
-  const plan = job.kind === 'hls' ? await planHls(job) : await planDash(job);
-  const uis = plan.tracks.map(trackUi);
-  if (plan.tracks.some(t => t.live)) setStatus('Live stream — grabbing the segments available right now…');
-  else setStatus('Downloading…');
-
-  const base = sanitizeFilename(`${job.title}${plan.label ? ` [${plan.label.split(' · ')[0]}]` : ''}`);
-  const files = [];
-  for (let i = 0; i < plan.tracks.length; i++) {
-    const t = plan.tracks[i];
-    const parts = await downloadTrack(t, uis[i]);
-    const suffix = plan.tracks.length > 1 ? (t.role === 'audio' ? ' (audio)' : ' (video)') : '';
-    const name = `${base}${suffix}.${t.ext}`;
-    setStatus(`Saving ${name}…`);
-    const state = await save(parts, name, t.ext);
-    if (state !== 'complete') throw new Error(`Browser could not save ${name}`);
-    files.push({ role: t.role, name });
-  }
-  setStatus(`Done — saved ${files.map(f => f.name).join(' + ')}`, 'ok');
-  $('#cancel').textContent = 'Close tab';
-  showHint(files);
-  await chrome.storage.session.remove(`job:${id}`);
 }
 
+$('#pause').addEventListener('click', () => {
+  if (!busy || phase !== 'fetching') return;
+  if (gate.paused) gate.resume(); else gate.pause();
+  $('#pause').textContent = gate.paused ? 'Resume' : 'Pause';
+  updatePauseStatus();
+});
+
 $('#cancel').addEventListener('click', async () => {
+  if (!busy) return;
   cancelled = true;
-  ctrl.abort();
+  $('#cancel').disabled = true;
+  $('#pause').disabled = true;
+  setStatus('Stopping active requests…', 'Cancelling');
+  controller.abort();
+  if (activeDownload != null) await chrome.downloads.cancel(activeDownload).catch(() => {});
+});
+
+$('#retry').addEventListener('click', () => { void run(); });
+$('#close').addEventListener('click', async () => {
   const me = await chrome.tabs.getCurrent();
-  if (me) chrome.tabs.remove(me.id);
+  if (me) await chrome.tabs.remove(me.id);
+});
+$('#copy-command').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('#command').textContent);
+    $('#copy-status').textContent = 'Command copied.';
+  } catch { $('#copy-status').textContent = 'Could not copy the command. Select and copy the text above.'; }
 });
 
 window.addEventListener('beforeunload', () => {
-  if (ruleId) chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] });
+  controller?.abort();
+  clearInterval(timer);
+  if (ruleId) chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] }).catch(() => {});
+  chrome.storage.session.remove(`job:${jobId}`).catch(() => {});
 });
 
-run().catch(e => {
-  if (cancelled) return setStatus('Cancelled.', 'err');
-  setStatus(e instanceof EncryptedError ? `🔒 ${e.message}` : `Failed: ${e.message || e}`, 'err');
-  $('#cancel').textContent = 'Close tab';
-}).finally(async () => {
-  if (ruleId) await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] }).catch(() => {});
+async function initialize() {
+  const preferences = await readPreferences().catch(() => ({ theme: 'system' }));
+  applyTheme(preferences.theme);
+  job = (await chrome.storage.session.get(`job:${jobId}`))[`job:${jobId}`];
+  if (!job) throw new Error('This download job has expired. Start a new download from ClipHawk.');
+  $('#title').textContent = job.title;
+  document.title = `ClipHawk · ${job.title}`;
+  $('#source').textContent = hostOf(job.url);
+  $('#source').title = job.url;
+  $('#format').textContent = job.kind.toUpperCase();
+  await run();
+}
+
+initialize().catch(error => {
+  setStatus(error.message || String(error), 'Unable to start', 'err');
+  $('#pause').hidden = true;
+  $('#cancel').hidden = true;
+  $('#close').hidden = false;
 });

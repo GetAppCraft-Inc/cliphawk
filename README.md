@@ -26,6 +26,23 @@ The first downloadable release appears after a version tag passes the workflow.
 
 For a source checkout, load the repository folder directly using the same steps.
 
+## New in 1.1.0
+
+- A redesigned popup with clearer video cards, source details, and accessible controls.
+- Search by video name, site, or quality; filter Files/HLS/DASH and sort by size, duration, or recency.
+- A **Downloadable only** filter and **Copy links** for matching downloadable videos (likely ads excluded).
+- Preferences for light/dark/system appearance, best/720p/480p quality, and asking where to save.
+- Rescan without closing the popup or losing your search and filters.
+- A new download manager with track progress, transferred bytes, average speed, and elapsed time.
+- Pause/resume, cancel without closing the page, and retry unfinished tracks while keeping saved tracks.
+- **Show in folder** for completed files and a copy button for ffmpeg merge/conversion commands.
+
+Pausing lets requests already in flight finish before it stops fetching. Retry
+restarts unfinished tracks rather than resuming their bytes; completed files are
+kept. The download manager controls apply to HLS/DASH downloads. Direct files use
+the browser's own download manager. DRM and encrypted streams remain unsupported.
+Preferences are stored locally on the device and can be changed with the gear button.
+
 ## Improvements in 1.0.1
 
 - Correct HLS byte-range offsets and reject invalid ranges or changing initialization segments.
@@ -67,9 +84,11 @@ See [PRIVACY.md](PRIVACY.md) for permissions, stored data, and network behavior.
 
 ## Development and verification
 
-Use Node.js 24 or newer. There are no npm dependencies and no install step.
+Use Node.js 24 or newer. The extension has no runtime dependencies. LinkeDOM is a
+development-only dependency used to test the popup and downloader interactions.
 
 ```sh
+npm ci --ignore-scripts
 npm run check
 npm test
 npm run build
@@ -81,13 +100,14 @@ JavaScript syntax. It includes only files in `scripts/package-files.json`, verif
 every ZIP entry against the source, and writes:
 
 ```text
-dist/cliphawk-1.0.1.zip
-dist/cliphawk-1.0.1.zip.sha256
+dist/cliphawk-1.1.0.zip
+dist/cliphawk-1.1.0.zip.sha256
 ```
 
 Tests cover HLS parsing, byte-range responses, retries, timeout/cancellation,
-download completion races, classification, and filenames. They use mocked browser
-and network APIs. Before releasing, also load the extension in Chrome/Brave and
+download completion races, classification, filenames, preferences, filters, and
+download manager interactions. They use a DOM implementation with mocked browser
+and network APIs. For a visual smoke test, load the extension in Chrome/Brave and
 smoke-test direct downloads, HLS with separate audio, cancellation, and DRM indicators.
 
 ## GitHub Actions and releases
@@ -99,12 +119,13 @@ Successful builds upload a ZIP and checksum as the `cliphawk-package` Actions ar
 To publish a public download:
 
 1. Commit and push the changes to this repository.
-2. Set the same release version in `manifest.json` and `package.json` (currently `1.0.1`).
+2. Set the same release version in `manifest.json` and `package.json` (currently `1.1.0`),
+   then run `npm install --package-lock-only --ignore-scripts` to update the lockfile.
 3. Commit/push any version change, then push the matching tag:
 
    ```sh
-   git tag v1.0.1
-   git push origin v1.0.1
+   git tag v1.1.0
+   git push origin v1.1.0
    ```
 
 The workflow rejects tags that do not match the manifest. Once checks and packaging
