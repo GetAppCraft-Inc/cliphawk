@@ -1,0 +1,20 @@
+[
+  "manifest.json",
+  "background.js",
+  "inject.js",
+  "popup.html",
+  "popup.js",
+  "popup.css",
+  "downloader.html",
+  "downloader.js",
+  "lib/common.js",
+  "lib/hls.js",
+  "lib/dash.js",
+  "lib/download.js",
+  "icons/icon16.png",
+  "icons/icon32.png",
+  "icons/icon48.png",
+  "icons/icon128.png",
+  "INSTALL.md",
+  "PRIVACY.md"
+]

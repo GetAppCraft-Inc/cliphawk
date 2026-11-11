@@ -31,6 +31,7 @@ function updateBadge(tabId, t) {
 
 async function resetTab(tabId) {
   clearTimeout(flushTimers.get(tabId));
+  flushTimers.delete(tabId);
   cache.set(tabId, Promise.resolve({ items: {}, seq: 0 }));
   await chrome.storage.session.remove(tabKey(tabId)).catch(() => {});
   chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
@@ -85,8 +86,15 @@ chrome.webRequest.onHeadersReceived.addListener(
 );
 
 chrome.tabs.onRemoved.addListener(tabId => {
+  clearTimeout(flushTimers.get(tabId));
+  flushTimers.delete(tabId);
   cache.delete(tabId);
   chrome.storage.session.remove(tabKey(tabId)).catch(() => {});
+  // Unload handlers are not guaranteed to run when a downloader tab is closed.
+  chrome.declarativeNetRequest.getSessionRules().then(rules => {
+    const removeRuleIds = rules.filter(rule => rule.condition.tabIds?.includes(tabId)).map(rule => rule.id);
+    if (removeRuleIds.length) return chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds });
+  }).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

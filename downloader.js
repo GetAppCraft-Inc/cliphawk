@@ -1,6 +1,7 @@
 import { fetchText, formatBytes, setRefererRule, sanitizeFilename } from './lib/common.js';
 import { parseHls, pickAudio } from './lib/hls.js';
 import { parseDash, dashTrackPlan } from './lib/dash.js';
+import { fetchBytes, waitForDownload } from './lib/download.js';
 
 const $ = s => document.querySelector(s);
 const CONCURRENCY = 6;
@@ -8,6 +9,7 @@ const MIME = { ts: 'video/mp2t', mp4: 'video/mp4', m4a: 'audio/mp4', webm: 'vide
 
 const ctrl = new AbortController();
 let ruleId = null;
+let cancelled = false;
 
 class EncryptedError extends Error {}
 
@@ -52,39 +54,13 @@ async function planDash(job) {
 }
 
 // ---------- fetching ----------
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 async function fetchBuf(item, onBytes) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const headers = item.range ? { Range: `bytes=${item.range.start}-${item.range.end}` } : {};
-      const r = await fetch(item.url, { credentials: 'include', headers, signal: ctrl.signal });
-      if (!r.ok) throw new Error(`HTTP ${r.status} for ${new URL(item.url).pathname.split('/').pop()}`);
-      if (!onBytes || !r.body) return new Uint8Array(await r.arrayBuffer());
-      const total = Number(r.headers.get('content-length')) || 0;
-      const reader = r.body.getReader();
-      const chunks = [];
-      let got = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        got += value.byteLength;
-        onBytes(got, total);
-      }
-      const out = new Uint8Array(got);
-      let off = 0;
-      for (const c of chunks) { out.set(c, off); off += c.byteLength; }
-      return out;
-    } catch (e) {
-      if (ctrl.signal.aborted || attempt >= 3) throw e;
-      await sleep(600 * 2 ** attempt);
-    }
-  }
+  return fetchBytes(item, { signal: ctrl.signal, onBytes });
 }
 
 async function downloadTrack(track, ui) {
   const items = track.init ? [track.init, ...track.segments] : track.segments;
+  if (!items.length) throw new Error('Stream has no downloadable segments');
   const parts = new Array(items.length);
   let next = 0, done = 0, bytes = 0;
 
@@ -110,6 +86,7 @@ async function downloadTrack(track, ui) {
     ctrl.abort();
     throw e;
   }
+  ctrl.signal.throwIfAborted();
   return parts;
 }
 
@@ -132,18 +109,12 @@ function trackUi(track, idx) {
 async function save(parts, filename, ext) {
   const blob = new Blob(parts, { type: MIME[ext] || 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
-  const id = await chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
-  return new Promise(resolve => {
-    const onChange = d => {
-      if (d.id !== id || !d.state) return;
-      if (d.state.current === 'complete' || d.state.current === 'interrupted') {
-        chrome.downloads.onChanged.removeListener(onChange);
-        URL.revokeObjectURL(url);
-        resolve(d.state.current);
-      }
-    };
-    chrome.downloads.onChanged.addListener(onChange);
-  });
+  try {
+    const id = await chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
+    return await waitForDownload(id);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function showHint(files) {
@@ -201,10 +172,11 @@ async function run() {
   setStatus(`Done — saved ${files.map(f => f.name).join(' + ')}`, 'ok');
   $('#cancel').textContent = 'Close tab';
   showHint(files);
-  chrome.storage.session.remove(`job:${id}`);
+  await chrome.storage.session.remove(`job:${id}`);
 }
 
 $('#cancel').addEventListener('click', async () => {
+  cancelled = true;
   ctrl.abort();
   const me = await chrome.tabs.getCurrent();
   if (me) chrome.tabs.remove(me.id);
@@ -215,7 +187,9 @@ window.addEventListener('beforeunload', () => {
 });
 
 run().catch(e => {
-  if (ctrl.signal.aborted && !(e instanceof EncryptedError)) return setStatus('Cancelled.', 'err');
+  if (cancelled) return setStatus('Cancelled.', 'err');
   setStatus(e instanceof EncryptedError ? `🔒 ${e.message}` : `Failed: ${e.message || e}`, 'err');
   $('#cancel').textContent = 'Close tab';
+}).finally(async () => {
+  if (ruleId) await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] }).catch(() => {});
 });

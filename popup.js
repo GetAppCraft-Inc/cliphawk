@@ -197,10 +197,10 @@ function card(c, ctx, isMain) {
 
   let select = null;
   if (i.variants?.length > 1 && !blocked) {
-    select = h('select', {}, i.variants.map((label, idx) => h('option', { value: idx }, label)));
+    select = h('select', { 'aria-label': 'Video quality' }, i.variants.map((label, idx) => h('option', { value: idx }, label)));
   }
 
-  const status = h('div', { class: 'note' });
+  const status = h('div', { class: 'note', role: 'status' });
   const dlBtn = h('button', {
     class: 'btn',
     disabled: blocked,
@@ -221,9 +221,14 @@ function card(c, ctx, isMain) {
     class: 'btn ghost',
     title: 'Copy URL',
     onclick: async () => {
-      await navigator.clipboard.writeText(c.url);
-      copyBtn.textContent = 'Copied';
-      setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
+      try {
+        await navigator.clipboard.writeText(c.url);
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
+      } catch {
+        status.className = 'note err';
+        status.textContent = 'Could not copy the URL. Check clipboard access and try again.';
+      }
     }
   }, 'Copy');
 

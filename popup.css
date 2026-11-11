@@ -109,3 +109,8 @@ footer {
 }
 .link { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; text-decoration: underline; }
 .link:hover { color: var(--accent); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
