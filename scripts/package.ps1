@@ -46,6 +46,10 @@ try {
         } finally { $entryStream.Dispose(); $memory.Dispose() }
     }
 } finally { $archive.Dispose() }
-$hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$hasher = [Security.Cryptography.SHA256]::Create()
+$hashStream = [IO.File]::OpenRead($archivePath)
+try {
+    $hash = [BitConverter]::ToString($hasher.ComputeHash($hashStream)).Replace('-', '').ToLowerInvariant()
+} finally { $hashStream.Dispose(); $hasher.Dispose() }
 [IO.File]::WriteAllText((Join-Path $outputDir "$archiveName.sha256"), "$hash  $archiveName`n", [Text.UTF8Encoding]::new($false))
 Write-Host "Built and verified $archivePath"
