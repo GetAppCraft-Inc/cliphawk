@@ -46,8 +46,8 @@ on the ClipHawk card at the extensions page. Reload video pages afterward.
 Every release includes a matching `.zip.sha256` file. Compare its hash with:
 
 ```powershell
-Get-FileHash ./cliphawk-1.1.0.zip -Algorithm SHA256
+Get-FileHash ./cliphawk-1.1.1.zip -Algorithm SHA256
 ```
 
-On Linux, use `sha256sum -c cliphawk-1.1.0.zip.sha256`; on macOS, use
-`shasum -a 256 -c cliphawk-1.1.0.zip.sha256`. Substitute the downloaded version.
+On Linux, use `sha256sum -c cliphawk-1.1.1.zip.sha256`; on macOS, use
+`shasum -a 256 -c cliphawk-1.1.1.zip.sha256`. Substitute the downloaded version.

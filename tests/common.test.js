@@ -23,5 +23,7 @@ test('filenames work on Windows and cannot introduce path separators', () => {
   assert.equal(sanitizeFilename('a/b:c?d'), 'a b c d');
   assert.equal(sanitizeFilename('...'), 'video');
   assert.equal(sanitizeFilename('title. '), 'title');
+  assert.equal(sanitizeFilename('‎My​ clip‮﻿'), 'My clip');
+  assert.equal(sanitizeFilename('... 50% off'), '50 off');
   assert.equal(sanitizeFilename('x'.repeat(119) + '.extra'), 'x'.repeat(119));
 });

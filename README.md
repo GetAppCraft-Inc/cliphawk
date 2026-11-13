@@ -1,4 +1,8 @@
-# ClipHawk — Video Grabber
+<p align="center">
+  <img src="assets/cliphawk-logo.png" alt="ClipHawk logo — a hawk and video play symbol" width="160" height="160">
+</p>
+
+<h1 align="center">ClipHawk — Video Grabber</h1>
 
 [![Build](https://github.com/GetAppCraft-Inc/cliphawk/actions/workflows/release.yml/badge.svg)](https://github.com/GetAppCraft-Inc/cliphawk/actions/workflows/release.yml)
 
@@ -100,8 +104,8 @@ JavaScript syntax. It includes only files in `scripts/package-files.json`, verif
 every ZIP entry against the source, and writes:
 
 ```text
-dist/cliphawk-1.1.0.zip
-dist/cliphawk-1.1.0.zip.sha256
+dist/cliphawk-1.1.1.zip
+dist/cliphawk-1.1.1.zip.sha256
 ```
 
 Tests cover HLS parsing, byte-range responses, retries, timeout/cancellation,
@@ -119,13 +123,13 @@ Successful builds upload a ZIP and checksum as the `cliphawk-package` Actions ar
 To publish a public download:
 
 1. Commit and push the changes to this repository.
-2. Set the same release version in `manifest.json` and `package.json` (currently `1.1.0`),
+2. Set the same release version in `manifest.json` and `package.json` (currently `1.1.1`),
    then run `npm install --package-lock-only --ignore-scripts` to update the lockfile.
 3. Commit/push any version change, then push the matching tag:
 
    ```sh
-   git tag v1.1.0
-   git push origin v1.1.0
+   git tag v1.1.1
+   git push origin v1.1.1
    ```
 
 The workflow rejects tags that do not match the manifest. Once checks and packaging
@@ -139,4 +143,7 @@ Published assets are not overwritten on reruns. If an upload fails and leaves a
 draft, review/remove that incomplete draft before rerunning the failed job. Manual
 workflow runs produce test artifacts only; publishing is triggered by a tag push.
 
-Icons can be regenerated with `python scripts/make_icons.py` (Python standard library only).
+The [ClipHawk logo](assets/cliphawk-logo.png) is the master artwork used in the
+README, browser toolbar, popup, and download manager. To export the icon sizes
+again on Windows, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export-icons.ps1`.
+The original icon generator is retained in `scripts/make_icons.py` for reference.

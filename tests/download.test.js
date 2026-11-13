@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchBytes, waitForDownload } from '../lib/download.js';
+import { fetchBytes, waitForDownload, startDownload } from '../lib/download.js';
 
 const item = { url: 'https://media.example/video.mp4', range: { start: 10, end: 12 } };
 
@@ -130,4 +130,19 @@ test('missing downloads fail instead of waiting forever', async () => {
   downloads.search = async () => [];
   await assert.rejects(waitForDownload(7, downloads), /no longer exists/);
   assert.equal(downloads.listeners.size, 0);
+});
+
+test('invalid filenames retry once with a plain fallback name', async () => {
+  const calls = [];
+  const downloads = {
+    download: async options => {
+      calls.push(options.filename);
+      if (calls.length === 1) throw new Error('Invalid filename');
+      return 5;
+    }
+  };
+  const id = await startDownload({ url: 'blob:x', filename: 'Bad‎ title.mp4' }, downloads);
+  assert.equal(id, 5);
+  assert.match(calls[1], /^cliphawk-\d{14}\.mp4$/);
+  await assert.rejects(startDownload({ filename: 'a.mp4' }, { download: async () => { throw new Error('Network'); } }), /Network/);
 });

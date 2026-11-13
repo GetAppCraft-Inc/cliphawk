@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ClipHawk — Video Grabber",
   "short_name": "ClipHawk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Spots the main video on any page (ignoring ads) and downloads it — MP4/WebM files, HLS and DASH streams. Encrypted streams are skipped.",
   "minimum_chrome_version": "111",
   "permissions": [
@@ -22,17 +22,17 @@
     "default_title": "ClipHawk — grab the video",
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "32": "icons/icon32.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "16": "icons/cliphawk16.png",
+      "32": "icons/cliphawk32.png",
+      "48": "icons/cliphawk48.png",
+      "128": "icons/cliphawk128.png"
     }
   },
   "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "16": "icons/cliphawk16.png",
+    "32": "icons/cliphawk32.png",
+    "48": "icons/cliphawk48.png",
+    "128": "icons/cliphawk128.png"
   },
   "content_scripts": [
     {

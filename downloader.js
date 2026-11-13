@@ -1,7 +1,7 @@
 import { formatBytes, setRefererRule, sanitizeFilename, hostOf } from './lib/common.js';
 import { parseHls, pickAudio } from './lib/hls.js';
 import { parseDash, dashTrackPlan } from './lib/dash.js';
-import { fetchBytes, waitForDownload } from './lib/download.js';
+import { fetchBytes, waitForDownload, startDownload } from './lib/download.js';
 import { PauseGate, fetchTrack, elapsedLabel } from './lib/transfer.js';
 import { readPreferences, applyTheme } from './lib/preferences.js';
 
@@ -114,7 +114,7 @@ function trackUi(track, index) {
 async function save(parts, filename, ext, signal) {
   const url = URL.createObjectURL(new Blob(parts, { type: MIME[ext] || 'application/octet-stream' }));
   try {
-    const id = await chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: !!job.saveAs });
+    const id = await startDownload({ url, filename, conflictAction: 'uniquify', saveAs: !!job.saveAs });
     activeDownload = id;
     if (signal.aborted) await chrome.downloads.cancel(id).catch(() => {});
     const state = await waitForDownload(id);

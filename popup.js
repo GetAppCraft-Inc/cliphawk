@@ -3,6 +3,7 @@ import {
   setRefererRule, fetchText
 } from './lib/common.js';
 import { parseHls } from './lib/hls.js';
+import { startDownload as browserDownload } from './lib/download.js';
 import { parseDash } from './lib/dash.js';
 import { DEFAULT_PREFERENCES, readPreferences, savePreferences, applyTheme, preferredVariant } from './lib/preferences.js';
 import { canDownload, selectCandidates } from './lib/candidates.js';
@@ -166,7 +167,7 @@ async function startDownload(c, variantIdx, ctx) {
     let ext = extOf(c.url);
     if (!ext) ext = /webm/.test(c.contentType) ? 'webm' : 'mp4';
     await setRefererRule({ ruleId: 1, pageUrl: ctx.pageUrl, tabId: chrome.tabs.TAB_ID_NONE, domains: [hostOf(c.url)] });
-    await chrome.downloads.download({ url: c.url, filename: `${title}.${ext}`, conflictAction: 'uniquify', saveAs: preferences.saveAs });
+    await browserDownload({ url: c.url, filename: `${title}.${ext}`, conflictAction: 'uniquify', saveAs: preferences.saveAs });
     return 'Download started';
   }
   const id = crypto.randomUUID();

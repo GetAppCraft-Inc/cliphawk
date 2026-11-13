@@ -15,10 +15,10 @@
   "lib/transfer.js",
   "lib/preferences.js",
   "lib/candidates.js",
-  "icons/icon16.png",
-  "icons/icon32.png",
-  "icons/icon48.png",
-  "icons/icon128.png",
+  "icons/cliphawk16.png",
+  "icons/cliphawk32.png",
+  "icons/cliphawk48.png",
+  "icons/cliphawk128.png",
   "INSTALL.md",
   "PRIVACY.md"
 ]

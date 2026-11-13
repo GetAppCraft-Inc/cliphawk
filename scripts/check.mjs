@@ -36,7 +36,7 @@ export async function check() {
     refs.forEach(ref => included(path.posix.normalize(path.posix.join(path.posix.dirname(file), ref))));
   }
   for (const size of [16, 32, 48, 128]) {
-    const png = await readFile(path.join(root, `icons/icon${size}.png`));
+    const png = await readFile(path.join(root, manifest.icons[size]));
     assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
